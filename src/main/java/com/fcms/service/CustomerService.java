@@ -1,5 +1,6 @@
 package com.fcms.service;
 
+import com.fcms.dto.QuickCollectionRow;
 import com.fcms.model.Customer;
 import com.fcms.model.CustomerStatus;
 import com.fcms.model.FinanceType;
@@ -10,7 +11,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -209,6 +212,56 @@ public class CustomerService {
                 .filter(c -> c.getStatus() == CustomerStatus.Running)
                 .filter(c -> c.getNextDueDate() != null && !c.getNextDueDate().isAfter(today))
                 .filter(c -> !alreadyMarkedToday.contains(c.getId()))
+                .toList();
+    }
+
+    /**
+     * Quick Collection rows for one date: for today, every Running loan that's due/overdue OR
+     * already has a payment recorded today; for any other (past) date, every loan that has a
+     * payment recorded on that date — so the same date-driven view works for live same-day
+     * collection and for looking back at/editing an earlier day's collections.
+     */
+    public List<QuickCollectionRow> getQuickCollection(LocalDate date) {
+        LocalDate today = LocalDate.now(IST);
+        Map<Long, Payment> paymentsOnDate = paymentRepository.findByDate(date).stream()
+                .collect(Collectors.toMap(Payment::getCustomerId, p -> p, (a, b) -> a));
+
+        List<Customer> rows;
+        if (date.equals(today)) {
+            rows = customerRepository.findAll().stream()
+                    .filter(c -> c.getStatus() == CustomerStatus.Running)
+                    .filter(c -> paymentsOnDate.containsKey(c.getId())
+                            || (c.getNextDueDate() != null && !c.getNextDueDate().isAfter(today)))
+                    .toList();
+        } else {
+            rows = customerRepository.findAll().stream()
+                    .filter(c -> paymentsOnDate.containsKey(c.getId()))
+                    .toList();
+        }
+
+        return rows.stream()
+                .sorted(Comparator.comparing(Customer::getName, Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(c -> {
+                    QuickCollectionRow row = new QuickCollectionRow();
+                    row.setCustomerId(c.getId());
+                    row.setName(c.getName());
+                    row.setMobile(c.getMobile());
+                    row.setGroupKey(c.getGroupKey());
+                    row.setFinanceAmount(c.getFinanceAmount());
+                    row.setInstallmentAmount(c.getInstallmentAmount());
+                    row.setFinanceType(c.getFinanceType());
+                    row.setNextDueDate(c.getNextDueDate());
+                    row.setStatus(c.getStatus());
+                    Payment p = paymentsOnDate.get(c.getId());
+                    if (p != null) {
+                        row.setPaymentId(p.getId());
+                        row.setPaymentType(p.getType());
+                        row.setPaymentAmount(p.getAmount());
+                        row.setNotes(p.getNotes());
+                        row.setCollectedBy(p.getCollectedBy());
+                    }
+                    return row;
+                })
                 .toList();
     }
 

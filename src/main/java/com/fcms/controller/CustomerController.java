@@ -59,6 +59,14 @@ public class CustomerController {
         return customerService.getDueToday();
     }
 
+    /** Quick Collection rows for a given date (defaults to today, IST) — due/overdue + already-marked loans. */
+    @GetMapping("/quick-collection")
+    public List<com.fcms.dto.QuickCollectionRow> quickCollection(
+            @RequestParam(required = false) java.time.LocalDate date) {
+        java.time.LocalDate d = date != null ? date : java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
+        return customerService.getQuickCollection(d);
+    }
+
     /** Other loan accounts belonging to the same person as customer {id} (multiple-loans-per-person support). */
     @GetMapping("/{id}/other-loans")
     public List<Customer> otherLoans(@PathVariable Long id) {
